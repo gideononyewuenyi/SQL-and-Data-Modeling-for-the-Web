@@ -14,83 +14,7 @@ from flask_wtf import Form
 from forms import *
 import sys
 from flask_migrate import Migrate
-#----------------------------------------------------------------------------#
-# App Config.
-#----------------------------------------------------------------------------#
-
-app = Flask(__name__)
-moment = Moment(app)
-app.config.from_object('config')
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
-
-# TODO: connect to a local postgresql database
-# Done: Please check config.py for the connection
-
-#----------------------------------------------------------------------------#
-# Models.
-#----------------------------------------------------------------------------#
-
-
-class Venue(db.Model):
-    __tablename__ = 'Venue'
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String)
-    city = db.Column(db.String(120))
-    state = db.Column(db.String(120))
-    address = db.Column(db.String(120))
-    phone = db.Column(db.String(120))
-    image_link = db.Column(db.String(500))
-    facebook_link = db.Column(db.String(120))
-    # TODO: implement any missing fields, as a database migration using Flask-Migrate
-    # Done: Please check below
-    genres = db.Column(db.ARRAY(db.String()))
-    website = db.Column(db.String(120))
-    seeking_talent = db.Column(db.Boolean)
-    seeking_description = db.Column(db.String(120))
-    shows = db.relationship('Show', backref='venue', lazy=True)
-
-    def __repr__(self):
-        return f'<Venue {self.id} {self.name}>'
-
-
-class Artist(db.Model):
-    __tablename__ = 'Artist'
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String)
-    city = db.Column(db.String(120))
-    state = db.Column(db.String(120))
-    phone = db.Column(db.String(120))
-    genres = db.Column(db.String(120))
-    image_link = db.Column(db.String(500))
-    facebook_link = db.Column(db.String(120))
-    # TODO: implement any missing fields, as a database migration using Flask-Migrate
-    # Done: Please check below
-    genres = db.Column(db.ARRAY(db.String()))
-    website = db.Column(db.String(120))
-    seeking_venue = db.Column(db.Boolean)
-    seeking_description = db.Column(db.String(120))
-    shows = db.relationship('Show', backref='artist', lazy=True)
-
-    def __repr__(self):
-        return f'<Artist {self.id} {self.name}>'
-
-
-# TODO Implement Show and Artist models, and complete all model relationships and properties, as a database migration.
-# Done: Please check below
-class Show(db.Model):
-    __tablename__ = 'Show'
-
-    id = db.Column(db.Integer, primary_key=True)
-    start_time = db.Column(db.DateTime, nullable=False)
-    artist_id = db.Column(db.Integer, db.ForeignKey(
-        'Artist.id'), nullable=False)
-    venue_id = db.Column(db.Integer, db.ForeignKey('Venue.id'), nullable=False)
-
-    def __repr__(self):
-        return f'<Show {self.id} {self.start_time}>'
+from model import *
 
 
 #----------------------------------------------------------------------------#
@@ -199,24 +123,28 @@ def show_venue(venue_id):
     # Done: Please check below
     venue = Venue.query.get(venue_id)
     shows = Show.query.filter_by(venue_id=venue_id).all()
+    past_query = db.session.query(Show).join(Artist).filter(
+        Show.venue_id == venue_id).filter(Show.start_time > datetime.now()).all()
     past_shows = []
+    upcoming_query = db.session.query(Show).join(Artist).filter(
+        Show.venue_id == venue_id).filter(Show.start_time > datetime.now()).all()
     upcoming_shows = []
-    for show in shows:
-        if datetime.now() > show.start_time:
-            past_shows.append({
-                "artist_id": show.artist_id,
-                "artist_name": show.artist.name,
-                "artist_image_link": show.artist.image_link,
-                "start_time": show.start_time.strftime('%d-%m-%Y %H:%M:%S')
-            })
 
-        elif show.start_time > datetime.now():
-            upcoming_shows.append({
-                "artist_id": show.artist_id,
-                "artist_name": show.artist.name,
-                "artist_image_link": show.artist.image_link,
-                "start_time": show.start_time.strftime('%d-%m-%Y %H:%M:%S')
-            })
+    for show in past_query:
+        past_shows.append({
+            "artist_id": show.artist_id,
+            "artist_name": show.artist.name,
+            "artist_image_link": show.artist.image_link,
+            "start_time": show.start_time.strftime('%d-%m-%Y %H:%M:%S')
+        })
+
+    for show in upcoming_query:
+        upcoming_shows.append({
+            "artist_id": show.artist_id,
+            "artist_name": show.artist.name,
+            "artist_image_link": show.artist.image_link,
+            "start_time": show.start_time.strftime('%d-%m-%Y %H:%M:%S')
+        })
 
     return render_template('pages/show_venue.html', venue=venue)
 
@@ -568,19 +496,32 @@ def edit_artist_submission(artist_id):
     # TODO: take values from the form submitted, and update existing
     # artist record with ID <artist_id> using the new attributes
     # Done: Please check below
-    artist = Artist.query.get(artist_id)
-    artist.name = request.form['name']
-    artist.city = request.form['city']
-    artist.state = request.form['state']
-    artist.phone = request.form['phone']
-    artist.genres = request.form.getlist('genres')
-    artist.facebook_link = request.form['facebook_link']
-    artist.image_link = request.form['image_link']
-    artist.seeking_venue = True if 'seeking_venue' in request.form else False
-    artist.seeking_description = request.form['seeking_description']
-    db.session.commit()
-    # On successful db insert, flash success message
-    flash('Artist ' + request.form['name'] + ' was successfully updated!')
+    error = False
+    try:
+        artist = Artist.query.get(artist_id)
+        artist.name = request.form['name']
+        artist.city = request.form['city']
+        artist.state = request.form['state']
+        artist.phone = request.form['phone']
+        artist.genres = request.form.getlist('genres')
+        artist.facebook_link = request.form['facebook_link']
+        artist.image_link = request.form['image_link']
+        artist.seeking_venue = True if 'seeking_venue' in request.form else False
+        artist.seeking_description = request.form['seeking_description']
+        db.session.add(artist)
+        db.session.commit()
+    except:
+        error = True
+        db.session.rollback()
+        print(sys.exc_info())
+    finally:
+        db.session.close()
+    if error:
+        flash('An error occurred. Artist ' +
+              request.form['name'] + ' could not be updated.')
+    else:
+        # On successful db insert, flash success message
+        flash('Artist ' + request.form['name'] + ' was successfully updated!')
 
     return redirect(url_for('show_artist', artist_id=artist_id))
 
